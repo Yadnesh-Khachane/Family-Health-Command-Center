@@ -1,0 +1,9 @@
+for new laptop do
+sudo npm install -g pnpm
+then 
+again run 
+pnpm install
+then to run project
+pnpm dev
+
+;) enjoyy!!!!
