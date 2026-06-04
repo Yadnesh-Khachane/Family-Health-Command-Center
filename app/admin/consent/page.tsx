@@ -1,146 +1,145 @@
 "use client";
 
-import { useState } from "react";
-import Link from "next/link";
+import { useState, useEffect, useCallback } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-
-// Mock data
-const familyMembers = [
-  { id: 1, name: "Gayatri Sharma", age: 72 },
-  { id: 2, name: "Ravi Sharma", age: 48 },
-  { id: 3, name: "Priya Sharma", age: 45 },
-  { id: 4, name: "Aarav Sharma", age: 16 },
-];
-
-const hospitals = [
-  { id: 1, name: "Apollo Medical Center" },
-  { id: 2, name: "City General Hospital" },
-];
+import { 
+  ShieldCheck, AlertTriangle, FileCheck2, Clock, Check, 
+  X, History, Server, Eye, Edit3, Trash2, LayoutTemplate,
+  Loader2
+} from "lucide-react";
+import { createClient } from "@/utils/supabase/client";
 
 type AccessLevel = "none" | "readonly" | "full";
 
-const initialMatrix: Record<string, AccessLevel> = {
-  "1-1": "full",    // Gayatri - Apollo
-  "1-2": "readonly", // Gayatri - City General
-  "2-1": "full",    // Ravi - Apollo
-  "2-2": "none",    // Ravi - City General
-  "3-1": "readonly", // Priya - Apollo
-  "3-2": "full",    // Priya - City General
-  "4-1": "none",    // Aarav - Apollo
-  "4-2": "none",    // Aarav - City General
-};
-
-const pendingRequests = [
-  { id: 1, hospital: "Apollo Medical Center", family: "Sharma Family", member: "Gayatri", type: "Full Access Request", reason: "Upcoming surgery consultation", time: "2h ago" },
-  { id: 2, hospital: "City General Hospital", family: "Sharma Family", member: "Ravi", type: "Read-Only Request", reason: "Second opinion on lab results", time: "5h ago" },
-  { id: 3, hospital: "Metro Hospital", family: "Gupta Family", member: "Rajesh", type: "Emergency Access", reason: "Emergency room admission", time: "8h ago" },
-  { id: 4, hospital: "Apollo Medical Center", family: "Patel Family", member: "Anita", type: "Full Access Request", reason: "Specialist referral", time: "1d ago" },
-];
-
-interface AuditEntry {
-  id: number;
-  action: string;
-  member: string;
-  hospital: string;
-  level: string;
-  time: string;
-}
-
 export default function ConsentPage() {
-  const [matrix, setMatrix] = useState(initialMatrix);
-  const [auditLog, setAuditLog] = useState<AuditEntry[]>([
-    { id: 1, action: "granted", member: "Gayatri Sharma", hospital: "Apollo", level: "Full Access", time: "Just now" },
-    { id: 2, action: "revoked", member: "Aarav Sharma", hospital: "City General", level: "Read-Only", time: "2 min ago" },
-    { id: 3, action: "modified", member: "Priya Sharma", hospital: "Apollo", level: "Read-Only", time: "15 min ago" },
+  const supabase = createClient();
+  
+  const [families, setFamilies] = useState<any[]>([]);
+  const [members, setMembers] = useState<any[]>([]);
+  const [hospitals, setHospitals] = useState<any[]>([]);
+  const [consentLinks, setConsentLinks] = useState<any[]>([]);
+  const [auditLog, setAuditLog] = useState<any[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+  
+  // Pending Requests (Mock for now, as schema doesn't have a requests table yet)
+  const [requests, setRequests] = useState([
+    { id: 1, hospital: "Apollo Medical Center", member: "Gayatri (Sharma)", type: "Full Access", reason: "Upcoming surgery", time: "2h ago" }
   ]);
-  const [requestStatuses, setRequestStatuses] = useState<Record<number, "approved" | "denied" | null>>({});
+  const [selectedRequests, setSelectedRequests] = useState<Set<number>>(new Set());
+  
+  // Modals
   const [toastMessage, setToastMessage] = useState<string | null>(null);
+  const [showOverride, setShowOverride] = useState(false);
+  const [showTemplates, setShowTemplates] = useState(false);
 
-  const showToast = (message: string) => {
-    setToastMessage(message);
+  const showToast = (msg: string) => {
+    setToastMessage(msg);
     setTimeout(() => setToastMessage(null), 3000);
   };
 
-  const cycleAccessLevel = (memberId: number, hospitalId: number) => {
-    const key = `${memberId}-${hospitalId}`;
-    const currentLevel = matrix[key];
-    const member = familyMembers.find(m => m.id === memberId);
+  const fetchData = useCallback(async () => {
+    setIsLoading(true);
+    const [famRes, memRes, hospRes, linkRes, auditRes] = await Promise.all([
+      supabase.from('families').select('*'),
+      supabase.from('members').select('*'),
+      supabase.from('hospitals').select('*').order('name'),
+      supabase.from('consent_links').select('*'),
+      supabase.from('audit_logs')
+        .select('*')
+        .or('action.eq.Consent Granted,action.eq.Consent Revoked,action.eq.Consent Updated')
+        .order('created_at', { ascending: false })
+        .limit(20)
+    ]);
+    
+    if (famRes.data) setFamilies(famRes.data);
+    if (memRes.data) setMembers(memRes.data);
+    if (hospRes.data) setHospitals(hospRes.data);
+    if (linkRes.data) setConsentLinks(linkRes.data);
+    if (auditRes.data) setAuditLog(auditRes.data);
+    
+    setIsLoading(false);
+  }, [supabase]);
+
+  useEffect(() => {
+    fetchData();
+  }, [fetchData]);
+
+  // Build matrix state
+  // key: "memberId-hospitalId", value: access_level
+  const matrix: Record<string, AccessLevel> = {};
+  consentLinks.forEach(link => {
+    matrix[`${link.member_id}-${link.hospital_id}`] = link.access_level;
+  });
+
+  const getMatrixValue = (memberId: string, hospitalId: string): AccessLevel => {
+    return matrix[`${memberId}-${hospitalId}`] || "none";
+  };
+
+  const cycleAccessLevel = async (memberId: string, hospitalId: string) => {
+    const current = getMatrixValue(memberId, hospitalId);
+    const member = members.find(m => m.id === memberId);
     const hospital = hospitals.find(h => h.id === hospitalId);
     
-    let newLevel: AccessLevel;
-    let levelLabel: string;
-    let action: string;
+    let next: AccessLevel = "none";
+    if (current === "none") next = "readonly";
+    else if (current === "readonly") next = "full";
     
-    switch (currentLevel) {
-      case "none":
-        newLevel = "readonly";
-        levelLabel = "Read-Only";
-        action = "granted";
-        break;
-      case "readonly":
-        newLevel = "full";
-        levelLabel = "Full Access";
-        action = "upgraded";
-        break;
-      case "full":
-        newLevel = "none";
-        levelLabel = "No Access";
-        action = "revoked";
-        break;
-      default:
-        newLevel = "none";
-        levelLabel = "No Access";
-        action = "revoked";
+    // Optimistic UI Update
+    setConsentLinks(prev => {
+      const exists = prev.find(p => p.member_id === memberId && p.hospital_id === hospitalId);
+      if (exists) {
+        return prev.map(p => p.member_id === memberId && p.hospital_id === hospitalId ? { ...p, access_level: next } : p);
+      } else {
+        return [...prev, { member_id: memberId, hospital_id: hospitalId, access_level: next }];
+      }
+    });
+
+    // DB Upsert
+    const { error } = await supabase
+      .from('consent_links')
+      .upsert({ member_id: memberId, hospital_id: hospitalId, access_level: next }, { onConflict: 'member_id,hospital_id' });
+    
+    if (error) {
+      console.error("Error upserting consent:", error);
+      fetchData(); // Revert
+      return;
     }
-    
-    setMatrix(prev => ({ ...prev, [key]: newLevel }));
-    
-    // Add to audit log
-    const newEntry: AuditEntry = {
-      id: Date.now(),
-      action,
-      member: member?.name || "",
-      hospital: hospital?.name || "",
-      level: levelLabel,
-      time: "Just now",
+
+    // Add audit
+    const actionMap = {
+      'none': 'Consent Revoked',
+      'readonly': 'Consent Granted',
+      'full': 'Consent Updated'
     };
-    setAuditLog(prev => [newEntry, ...prev.slice(0, 9)]);
-    showToast(`Consent updated for ${member?.name}`);
+    
+    await supabase.from('audit_logs').insert({
+      actor: "Admin SA",
+      action: actionMap[next],
+      target: `${member?.first_name} at ${hospital?.name}`,
+      details: `${current} -> ${next}`,
+      ip_address: "192.168.1.100" // Mock IP
+    });
+
+    fetchData(); // Refresh audit logs
+    showToast(`Consent updated for ${member?.first_name}`);
   };
 
-  const handleApprove = (id: number) => {
-    setRequestStatuses(prev => ({ ...prev, [id]: "approved" }));
-    showToast("Request approved");
-  };
-
-  const handleDeny = (id: number) => {
-    setRequestStatuses(prev => ({ ...prev, [id]: "denied" }));
-    showToast("Request denied");
+  const handleBulkAction = (action: 'approve' | 'deny') => {
+    setRequests(prev => prev.filter(r => !selectedRequests.has(r.id)));
+    setSelectedRequests(new Set());
+    showToast(`Successfully ${action}d selected requests`);
   };
 
   const getAccessColor = (level: AccessLevel) => {
     switch (level) {
-      case "full": return "bg-amber-500";
-      case "readonly": return "bg-transparent border-2 border-amber-500";
-      case "none": return "bg-white/5 border border-white/10";
-    }
-  };
-
-  const getAccessLabel = (level: AccessLevel) => {
-    switch (level) {
-      case "full": return "Full";
-      case "readonly": return "Read";
-      case "none": return "None";
+      case "full": return "bg-amber-500 shadow-[0_0_15px_rgba(245,166,35,0.3)] border border-amber-400";
+      case "readonly": return "bg-amber-500/10 border-2 border-amber-500 text-amber-500";
+      case "none": return "bg-white/5 border border-white/10 hover:bg-white/10";
     }
   };
 
   return (
-    <div className="min-h-screen bg-[#0D0D0D] relative overflow-hidden">
-      {/* Background Effects */}
-      <div className="fixed inset-0 opacity-30 pointer-events-none" style={{ backgroundImage: "url(\"data:image/svg+xml,%3Csvg viewBox='0 0 400 400' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noiseFilter'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noiseFilter)'/%3E%3C/svg%3E\")" }} />
-      <div className="fixed top-20 left-20 w-96 h-96 bg-amber-500/10 rounded-full blur-3xl pointer-events-none" />
-      <div className="fixed bottom-20 right-20 w-80 h-80 bg-terracotta/10 rounded-full blur-3xl pointer-events-none" />
-
+    <div className="p-6 max-w-7xl mx-auto space-y-8 relative">
       {/* Toast */}
       <AnimatePresence>
         {toastMessage && (
@@ -148,188 +147,226 @@ export default function ConsentPage() {
             initial={{ opacity: 0, y: -50 }}
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: -50 }}
-            className="fixed top-24 left-1/2 -translate-x-1/2 z-50 px-6 py-3 rounded-lg frosted-glass border border-amber-500/30"
+            className="fixed top-6 left-1/2 -translate-x-1/2 z-50 px-6 py-3 rounded-lg frosted-glass border border-amber-500/30 shadow-lg"
           >
             <p className="text-ivory font-medium">{toastMessage}</p>
           </motion.div>
         )}
       </AnimatePresence>
 
-      {/* Top Bar */}
-      <header className="sticky top-0 z-40 frosted-glass px-6 py-4">
-        <div className="max-w-7xl mx-auto flex items-center gap-6">
-          <Link href="/admin/dashboard" className="flex items-center gap-2 text-ivory/70 hover:text-ivory transition-colors">
-            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
-            </svg>
-            <span>Back to Dashboard</span>
-          </Link>
-          <h1 className="text-xl font-semibold text-ivory font-space-grotesk">Consent Governance</h1>
+      <header className="flex items-end justify-between">
+        <div>
+          <h1 className="text-2xl font-bold text-ivory font-space-grotesk">Consent Governance</h1>
+          <p className="text-ivory/50">Manage data sharing permissions between families and hospitals (Live DB)</p>
+        </div>
+        <div className="flex gap-3">
+          <button 
+            onClick={() => setShowTemplates(true)}
+            className="px-4 py-2 bg-white/5 hover:bg-white/10 border border-white/10 text-ivory rounded-lg text-sm transition-colors flex items-center gap-2"
+          >
+            <LayoutTemplate size={16} /> Consent Templates
+          </button>
+          <button 
+            onClick={() => setShowOverride(true)}
+            className="px-4 py-2 bg-crimson/10 hover:bg-crimson/20 border border-crimson/30 text-crimson rounded-lg text-sm transition-colors flex items-center gap-2 font-medium"
+          >
+            <AlertTriangle size={16} /> Mass Override
+          </button>
         </div>
       </header>
 
-      {/* Main Content */}
-      <main className="max-w-7xl mx-auto px-6 py-8">
-        <motion.div
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          className="grid grid-cols-1 lg:grid-cols-3 gap-8"
-        >
-          {/* Left: Consent Matrix */}
-          <div className="lg:col-span-2">
-            <div className="frosted-panel rounded-xl p-6 mb-8">
-              <h2 className="text-ivory font-semibold text-lg mb-6">Visual Consent Matrix</h2>
-              
-              {/* Matrix Header */}
-              <div className="overflow-x-auto">
-                <table className="w-full">
-                  <thead>
-                    <tr>
-                      <th className="text-left text-ivory/50 text-sm font-normal pb-4 pr-4 min-w-[160px]">Family Member</th>
-                      {hospitals.map(hospital => (
-                        <th key={hospital.id} className="text-center text-ivory/50 text-sm font-normal pb-4 px-2 min-w-[140px]">
-                          {hospital.name}
-                        </th>
-                      ))}
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {familyMembers.map(member => (
+      {isLoading && (
+        <div className="absolute inset-0 z-20 flex flex-col items-center justify-center bg-black/20 backdrop-blur-sm text-amber-500 h-[500px]">
+          <Loader2 className="animate-spin mb-4" size={48} />
+          <p>Loading consent matrix...</p>
+        </div>
+      )}
+
+      {/* Grid Layout */}
+      <div className="grid grid-cols-1 xl:grid-cols-3 gap-6">
+        
+        {/* Main Column - Matrix & Requests */}
+        <div className="xl:col-span-2 space-y-6">
+          
+          {/* Matrix Panel */}
+          <div className="frosted-panel rounded-xl p-6">
+            <h2 className="text-ivory font-semibold mb-6 flex items-center gap-2">
+              <ShieldCheck className="text-amber-500" /> Visual Consent Matrix
+            </h2>
+            
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr>
+                    <th className="text-left font-normal text-ivory/50 pb-4 pr-4 w-48">Family Member</th>
+                    {hospitals.map(h => (
+                      <th key={h.id} className="text-center font-normal text-ivory/50 pb-4 px-2 w-32">
+                        <div className="truncate max-w-[120px] mx-auto" title={h.name}>{h.name}</div>
+                      </th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {members.map(member => {
+                    const family = families.find(f => f.id === member.family_id);
+                    return (
                       <tr key={member.id}>
-                        <td className="py-3 pr-4">
-                          <div>
-                            <p className="text-ivory font-medium">{member.name}</p>
-                            <p className="text-ivory/50 text-sm">Age {member.age}</p>
-                          </div>
+                        <td className="py-2 pr-4 border-b border-white/5">
+                          <p className="text-ivory font-medium">{member.first_name}</p>
+                          <p className="text-xs text-ivory/40">{family?.name || 'Unknown Family'}</p>
                         </td>
                         {hospitals.map(hospital => {
-                          const key = `${member.id}-${hospital.id}`;
-                          const level = matrix[key];
+                          const level = getMatrixValue(member.id, hospital.id);
                           return (
-                            <td key={hospital.id} className="py-3 px-2">
+                            <td key={hospital.id} className="p-2 border-b border-white/5">
                               <motion.button
                                 whileHover={{ scale: 1.05 }}
                                 whileTap={{ scale: 0.95 }}
                                 onClick={() => cycleAccessLevel(member.id, hospital.id)}
-                                className={`w-full h-16 rounded-lg flex items-center justify-center transition-all ${getAccessColor(level)}`}
+                                className={`w-full h-10 rounded-lg flex items-center justify-center transition-all ${getAccessColor(level)}`}
                               >
-                                <span className={`text-sm font-medium ${level === "full" ? "text-obsidian" : level === "readonly" ? "text-amber-500" : "text-ivory/30"}`}>
-                                  {getAccessLabel(level)}
+                                <span className={`text-xs font-bold uppercase tracking-wider ${level === 'full' ? 'text-obsidian' : level === 'readonly' ? 'text-amber-500' : 'text-ivory/30'}`}>
+                                  {level === 'readonly' ? 'Read' : level}
                                 </span>
                               </motion.button>
                             </td>
                           );
                         })}
                       </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+            
+            <div className="flex gap-6 mt-6 pt-4 border-t border-white/10 text-xs text-ivory/50">
+              <span className="flex items-center gap-2"><div className="w-3 h-3 bg-amber-500 rounded-sm"/> Full Access</span>
+              <span className="flex items-center gap-2"><div className="w-3 h-3 border-2 border-amber-500 rounded-sm"/> Read-Only</span>
+              <span className="flex items-center gap-2"><div className="w-3 h-3 bg-white/5 border border-white/10 rounded-sm"/> No Access</span>
+            </div>
+          </div>
 
-              {/* Legend */}
-              <div className="flex items-center gap-6 mt-6 pt-4 border-t border-white/10">
-                <div className="flex items-center gap-2">
-                  <div className="w-4 h-4 rounded bg-amber-500"></div>
-                  <span className="text-ivory/50 text-sm">Full Access</span>
+          {/* Pending Requests */}
+          <div className="frosted-panel rounded-xl p-6">
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="text-ivory font-semibold flex items-center gap-2">
+                <FileCheck2 className="text-sage" /> Pending Access Requests
+              </h2>
+              {selectedRequests.size > 0 && (
+                <div className="flex gap-2">
+                  <button onClick={() => handleBulkAction('approve')} className="px-3 py-1 bg-sage/20 text-sage hover:bg-sage/30 rounded text-xs font-medium transition-colors">
+                    Approve Selected
+                  </button>
+                  <button onClick={() => handleBulkAction('deny')} className="px-3 py-1 bg-crimson/20 text-crimson hover:bg-crimson/30 rounded text-xs font-medium transition-colors">
+                    Deny Selected
+                  </button>
                 </div>
-                <div className="flex items-center gap-2">
-                  <div className="w-4 h-4 rounded border-2 border-amber-500"></div>
-                  <span className="text-ivory/50 text-sm">Read-Only</span>
-                </div>
-                <div className="flex items-center gap-2">
-                  <div className="w-4 h-4 rounded bg-white/5 border border-white/10"></div>
-                  <span className="text-ivory/50 text-sm">No Access</span>
-                </div>
-              </div>
+              )}
             </div>
 
-            {/* Pending Requests */}
-            <div className="frosted-panel rounded-xl p-6">
-              <h2 className="text-ivory font-semibold text-lg mb-4">Pending Access Requests</h2>
-              <div className="overflow-x-auto">
-                <table className="w-full">
-                  <thead>
-                    <tr className="border-b border-white/10">
-                      <th className="text-left text-ivory/50 text-sm font-normal pb-3">Hospital</th>
-                      <th className="text-left text-ivory/50 text-sm font-normal pb-3">Patient</th>
-                      <th className="text-left text-ivory/50 text-sm font-normal pb-3">Type</th>
-                      <th className="text-left text-ivory/50 text-sm font-normal pb-3">Reason</th>
-                      <th className="text-left text-ivory/50 text-sm font-normal pb-3">Time</th>
-                      <th className="text-right text-ivory/50 text-sm font-normal pb-3">Actions</th>
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm text-left">
+                <thead className="bg-[#141414] border-b border-white/10">
+                  <tr>
+                    <th className="px-4 py-3 w-10">
+                      <input 
+                        type="checkbox" 
+                        checked={selectedRequests.size === requests.length && requests.length > 0}
+                        onChange={() => {
+                          if (selectedRequests.size === requests.length) setSelectedRequests(new Set());
+                          else setSelectedRequests(new Set(requests.map(r => r.id)));
+                        }}
+                        className="rounded border-white/20 bg-black/40 text-sage focus:ring-sage/50"
+                      />
+                    </th>
+                    <th className="px-4 py-3 font-medium text-ivory/50">Hospital</th>
+                    <th className="px-4 py-3 font-medium text-ivory/50">Patient</th>
+                    <th className="px-4 py-3 font-medium text-ivory/50">Type</th>
+                    <th className="px-4 py-3 font-medium text-ivory/50">Time</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-white/5">
+                  {requests.map(req => (
+                    <tr key={req.id} className="hover:bg-white/5 transition-colors">
+                      <td className="px-4 py-3">
+                        <input 
+                          type="checkbox" 
+                          checked={selectedRequests.has(req.id)}
+                          onChange={() => {
+                            const newSet = new Set(selectedRequests);
+                            if (newSet.has(req.id)) newSet.delete(req.id);
+                            else newSet.add(req.id);
+                            setSelectedRequests(newSet);
+                          }}
+                          className="rounded border-white/20 bg-black/40 text-sage focus:ring-sage/50"
+                        />
+                      </td>
+                      <td className="px-4 py-3 text-ivory">{req.hospital}</td>
+                      <td className="px-4 py-3 text-ivory">{req.member}</td>
+                      <td className="px-4 py-3">
+                        <span className={`px-2 py-1 rounded text-xs font-medium ${req.type.includes('Emergency') ? 'bg-crimson/20 text-crimson' : 'bg-amber-500/20 text-amber-500'}`}>
+                          {req.type}
+                        </span>
+                      </td>
+                      <td className="px-4 py-3 text-ivory/50 text-xs flex items-center gap-1">
+                        <Clock size={12}/> {req.time}
+                      </td>
                     </tr>
-                  </thead>
-                  <tbody>
-                    {pendingRequests.map(req => (
-                      <tr key={req.id} className="border-b border-white/5">
-                        <td className="py-4 text-ivory text-sm">{req.hospital}</td>
-                        <td className="py-4 text-ivory text-sm">{req.member} ({req.family})</td>
-                        <td className="py-4">
-                          <span className={`px-2 py-1 rounded text-xs ${req.type.includes("Emergency") ? "bg-crimson/20 text-crimson" : req.type.includes("Full") ? "bg-amber-500/20 text-amber-500" : "bg-white/10 text-ivory/70"}`}>
-                            {req.type}
-                          </span>
-                        </td>
-                        <td className="py-4 text-ivory/70 text-sm max-w-[200px] truncate">{req.reason}</td>
-                        <td className="py-4 text-ivory/50 text-sm">{req.time}</td>
-                        <td className="py-4 text-right">
-                          {requestStatuses[req.id] === "approved" ? (
-                            <span className="text-sage text-sm">Approved</span>
-                          ) : requestStatuses[req.id] === "denied" ? (
-                            <span className="text-crimson text-sm">Denied</span>
-                          ) : (
-                            <div className="flex gap-2 justify-end">
-                              <button
-                                onClick={() => handleApprove(req.id)}
-                                className="px-3 py-1 text-xs rounded bg-sage/20 text-sage hover:bg-sage/30 transition-colors"
-                              >
-                                Approve
-                              </button>
-                              <button
-                                onClick={() => handleDeny(req.id)}
-                                className="px-3 py-1 text-xs rounded bg-crimson/20 text-crimson hover:bg-crimson/30 transition-colors"
-                              >
-                                Deny
-                              </button>
-                            </div>
-                          )}
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-          </div>
-
-          {/* Right: Audit Log */}
-          <div className="lg:col-span-1">
-            <div className="frosted-panel rounded-xl p-6 sticky top-24">
-              <h2 className="text-ivory font-semibold text-lg mb-4">Recent Consent Changes</h2>
-              <div className="space-y-3 max-h-[600px] overflow-y-auto pr-2">
-                <AnimatePresence>
-                  {auditLog.map(entry => (
-                    <motion.div
-                      key={entry.id}
-                      initial={{ opacity: 0, x: 20 }}
-                      animate={{ opacity: 1, x: 0 }}
-                      exit={{ opacity: 0, x: -20 }}
-                      className="p-3 rounded-lg bg-white/5 border border-white/10"
-                    >
-                      <p className="text-ivory text-sm">
-                        <span className="text-amber-500 font-medium">Admin SA</span>
-                        {" "}{entry.action}{" "}
-                        <span className="text-ivory/70">{entry.hospital}</span>
-                        {" "}{entry.level} to{" "}
-                        <span className="text-ivory/70">{entry.member}</span>
-                      </p>
-                      <p className="text-ivory/40 text-xs mt-1">{entry.time}</p>
-                    </motion.div>
                   ))}
-                </AnimatePresence>
-              </div>
+                  {requests.length === 0 && (
+                    <tr>
+                      <td colSpan={5} className="py-8 text-center text-ivory/40">No pending requests</td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
             </div>
           </div>
-        </motion.div>
-      </main>
+        </div>
+
+        {/* Right Column - Audit Trail */}
+        <div className="xl:col-span-1">
+          <div className="frosted-panel rounded-xl p-6 sticky top-6 h-[calc(100vh-140px)] flex flex-col">
+            <h2 className="text-ivory font-semibold mb-4 flex items-center gap-2">
+              <History className="text-terracotta" /> Live Audit Trail
+            </h2>
+            
+            <div className="flex-1 overflow-y-auto space-y-4 pr-2 custom-scrollbar">
+              <AnimatePresence initial={false}>
+                {auditLog.length === 0 && !isLoading && (
+                  <p className="text-ivory/40 text-sm text-center mt-10">No consent changes logged yet.</p>
+                )}
+                {auditLog.map(log => (
+                  <motion.div 
+                    key={log.id}
+                    initial={{ opacity: 0, x: 20 }}
+                    animate={{ opacity: 1, x: 0 }}
+                    className="p-3 bg-white/5 border border-white/10 rounded-lg text-sm"
+                  >
+                    <div className="flex justify-between items-start mb-2">
+                      <span className="font-medium text-amber-500 text-xs">{log.actor}</span>
+                      <span className="text-ivory/40 text-[10px] flex items-center gap-1"><Clock size={10}/>{new Date(log.created_at).toLocaleTimeString()}</span>
+                    </div>
+                    
+                    <p className="text-ivory/80 mb-2 leading-relaxed text-xs">
+                      {log.action} for 
+                      <span className="text-ivory font-medium"> {log.target}</span>.
+                    </p>
+                    
+                    <div className="flex items-center gap-2 text-xs p-2 bg-black/40 rounded border border-white/5">
+                      <span className="text-ivory font-medium">{log.details}</span>
+                    </div>
+                    
+                    <div className="mt-2 flex items-center gap-1 text-[10px] text-ivory/30 font-mono">
+                      <Server size={10} /> IP: {log.ip_address}
+                    </div>
+                  </motion.div>
+                ))}
+              </AnimatePresence>
+            </div>
+          </div>
+        </div>
+      </div>
     </div>
   );
 }
