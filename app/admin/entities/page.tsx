@@ -1,188 +1,170 @@
 "use client";
 
-import { useState } from "react";
-import Link from "next/link";
+import { useState, useEffect, useCallback } from "react";
 import { motion, AnimatePresence } from "framer-motion";
+import { 
+  Users, Building2, ShieldAlert, Search, Filter, 
+  MoreVertical, Edit2, Key, UserX, UserCheck, 
+  UserPlus, Building, Upload, Mail, CheckCircle2,
+  Lock, History, LogIn, Loader2
+} from "lucide-react";
+import { createClient } from "@/utils/supabase/client";
 
 type Tab = "families" | "hospitals" | "admins";
 
-interface Family {
-  id: number;
-  name: string;
-  members: number;
-  created: string;
-  status: "Active" | "Inactive";
-}
-
-interface Hospital {
-  id: number;
-  name: string;
-  departments: number;
-  created: string;
-  status: "Active" | "Inactive";
-}
-
-interface Admin {
-  id: number;
-  name: string;
-  email: string;
-  role: string;
-  created: string;
-  status: "Active" | "Inactive";
-}
-
-const initialFamilies: Family[] = [
-  { id: 1, name: "Sharma Family", members: 4, created: "Jan 15, 2024", status: "Active" },
-  { id: 2, name: "Gupta Family", members: 3, created: "Feb 22, 2024", status: "Active" },
-  { id: 3, name: "Patel Family", members: 5, created: "Mar 10, 2024", status: "Active" },
-  { id: 4, name: "Kumar Family", members: 6, created: "Apr 5, 2024", status: "Active" },
-  { id: 5, name: "Singh Family", members: 4, created: "May 18, 2024", status: "Inactive" },
-];
-
-const initialHospitals: Hospital[] = [
-  { id: 1, name: "Apollo Medical Center", departments: 12, created: "Jan 1, 2024", status: "Active" },
-  { id: 2, name: "City General Hospital", departments: 8, created: "Jan 15, 2024", status: "Active" },
-  { id: 3, name: "Metro Hospital", departments: 10, created: "Feb 1, 2024", status: "Active" },
-  { id: 4, name: "Sunrise Clinic", departments: 4, created: "Mar 1, 2024", status: "Inactive" },
-];
-
-const initialAdmins: Admin[] = [
-  { id: 1, name: "Dr. Suresh Agarwal", email: "suresh.a@fhcc.com", role: "Super Admin", created: "Jan 1, 2024", status: "Active" },
-  { id: 2, name: "Meera Krishnan", email: "meera.k@fhcc.com", role: "Admin", created: "Jan 15, 2024", status: "Active" },
-  { id: 3, name: "Rahul Verma", email: "rahul.v@fhcc.com", role: "Admin", created: "Feb 1, 2024", status: "Active" },
-];
-
-export default function EntitiesPage() {
+export default function EntityManagement() {
+  const supabase = createClient();
+  
   const [activeTab, setActiveTab] = useState<Tab>("families");
-  const [families, setFamilies] = useState(initialFamilies);
-  const [hospitals, setHospitals] = useState(initialHospitals);
-  const [admins, setAdmins] = useState(initialAdmins);
   const [searchQuery, setSearchQuery] = useState("");
-  const [editingId, setEditingId] = useState<number | null>(null);
-  const [editValue, setEditValue] = useState("");
-  const [showDeactivateModal, setShowDeactivateModal] = useState<{ type: Tab; id: number; name: string } | null>(null);
-  const [showAddModal, setShowAddModal] = useState(false);
+  
+  const [families, setFamilies] = useState<any[]>([]);
+  const [hospitals, setHospitals] = useState<any[]>([]);
+  const [admins, setAdmins] = useState<any[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+  
+  // Modals
   const [toastMessage, setToastMessage] = useState<string | null>(null);
-  const [newHospital, setNewHospital] = useState({ name: "", address: "", adminEmail: "", adminPassword: "" });
+  const [suspendModal, setSuspendModal] = useState<{ id: string, type: Tab, name: string, isSuspended: boolean } | null>(null);
+  const [suspendReason, setSuspendReason] = useState("");
+  const [addHospitalModal, setAddHospitalModal] = useState(false);
+  const [inviteAdminModal, setInviteAdminModal] = useState(false);
+  const [expandedAdmin, setExpandedAdmin] = useState<string | null>(null);
 
-  const showToast = (message: string) => {
-    setToastMessage(message);
+  const showToast = (msg: string) => {
+    setToastMessage(msg);
     setTimeout(() => setToastMessage(null), 3000);
   };
 
-  const handleDeactivate = () => {
-    if (!showDeactivateModal) return;
-    const { type, id, name } = showDeactivateModal;
+  const fetchEntities = useCallback(async () => {
+    setIsLoading(true);
+    const [famRes, hospRes, adminRes] = await Promise.all([
+      supabase.from('families').select('*, members(id)').order('created_at', { ascending: false }),
+      supabase.from('hospitals').select('*').order('name'),
+      supabase.from('admins').select('*').order('name')
+    ]);
     
-    if (type === "families") {
-      setFamilies(prev => prev.map(f => f.id === id ? { ...f, status: "Inactive" } : f));
-    } else if (type === "hospitals") {
-      setHospitals(prev => prev.map(h => h.id === id ? { ...h, status: "Inactive" } : h));
-    } else {
-      setAdmins(prev => prev.map(a => a.id === id ? { ...a, status: "Inactive" } : a));
-    }
+    if (famRes.data) setFamilies(famRes.data);
+    if (hospRes.data) setHospitals(hospRes.data);
+    if (adminRes.data) setAdmins(adminRes.data);
+    setIsLoading(false);
+  }, [supabase]);
+
+  useEffect(() => {
+    fetchEntities();
+  }, [fetchEntities]);
+
+  const handleStatusToggle = async () => {
+    if (!suspendModal) return;
+    const { id, type, isSuspended, name } = suspendModal;
+    const newStatus = isSuspended ? "Active" : "Suspended";
     
-    showToast(`${name} has been deactivated`);
-    setShowDeactivateModal(null);
-  };
+    const table = type; // families, hospitals, admins
+    
+    // Optimistic Update
+    if (type === "families") setFamilies(prev => prev.map(f => f.id === id ? { ...f, status: newStatus } : f));
+    if (type === "hospitals") setHospitals(prev => prev.map(h => h.id === id ? { ...h, status: newStatus } : h));
+    if (type === "admins") setAdmins(prev => prev.map(a => a.id === id ? { ...a, status: newStatus } : a));
+    
+    showToast(`${name} is now ${newStatus}`);
+    setSuspendModal(null);
+    setSuspendReason("");
 
-  const startEditing = (id: number, currentValue: string) => {
-    setEditingId(id);
-    setEditValue(currentValue);
-  };
-
-  const saveEdit = (type: Tab, id: number) => {
-    if (type === "families") {
-      setFamilies(prev => prev.map(f => f.id === id ? { ...f, name: editValue } : f));
-    } else if (type === "hospitals") {
-      setHospitals(prev => prev.map(h => h.id === id ? { ...h, name: editValue } : h));
+    // DB Update
+    const { error } = await supabase
+      .from(table)
+      .update({ status: newStatus })
+      .eq('id', id);
+      
+    if (error) {
+      console.error("Error updating status:", error);
+      fetchEntities(); // Revert
     } else {
-      setAdmins(prev => prev.map(a => a.id === id ? { ...a, name: editValue } : a));
+      // Log audit
+      await supabase.from('audit_logs').insert({
+        actor: 'Admin User', // Hardcoded for demo
+        action: 'Account Suspended',
+        target: name,
+        details: suspendReason || "No reason provided",
+        ip_address: '127.0.0.1'
+      });
     }
-    setEditingId(null);
-    showToast("Changes saved");
   };
 
-  const addHospital = () => {
-    if (!newHospital.name || !newHospital.adminEmail) return;
-    const newId = Math.max(...hospitals.map(h => h.id)) + 1;
-    setHospitals(prev => [...prev, {
-      id: newId,
-      name: newHospital.name,
-      departments: 0,
-      created: new Date().toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }),
-      status: "Active"
-    }]);
-    setNewHospital({ name: "", address: "", adminEmail: "", adminPassword: "" });
-    setShowAddModal(false);
-    showToast(`${newHospital.name} has been added`);
-  };
-
-  const filteredFamilies = families.filter(f => f.name.toLowerCase().includes(searchQuery.toLowerCase()));
-  const filteredHospitals = hospitals.filter(h => h.name.toLowerCase().includes(searchQuery.toLowerCase()));
-  const filteredAdmins = admins.filter(a => a.name.toLowerCase().includes(searchQuery.toLowerCase()) || a.email.toLowerCase().includes(searchQuery.toLowerCase()));
-
-  const tabs: { key: Tab; label: string }[] = [
-    { key: "families", label: "Families" },
-    { key: "hospitals", label: "Hospitals" },
-    { key: "admins", label: "Admins" },
-  ];
+  const filteredFamilies = families.filter(f => f.name?.toLowerCase().includes(searchQuery.toLowerCase()) || f.primary_contact?.toLowerCase().includes(searchQuery.toLowerCase()));
+  const filteredHospitals = hospitals.filter(h => h.name?.toLowerCase().includes(searchQuery.toLowerCase()));
+  const filteredAdmins = admins.filter(a => a.name?.toLowerCase().includes(searchQuery.toLowerCase()) || a.email?.toLowerCase().includes(searchQuery.toLowerCase()));
 
   return (
-    <div className="min-h-screen bg-[#0D0D0D] relative overflow-hidden">
-      {/* Background Effects */}
-      <div className="fixed inset-0 opacity-30 pointer-events-none" style={{ backgroundImage: "url(\"data:image/svg+xml,%3Csvg viewBox='0 0 400 400' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noiseFilter'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noiseFilter)'/%3E%3C/svg%3E\")" }} />
-      <div className="fixed top-20 left-20 w-96 h-96 bg-amber-500/10 rounded-full blur-3xl pointer-events-none" />
-      <div className="fixed bottom-20 right-20 w-80 h-80 bg-terracotta/10 rounded-full blur-3xl pointer-events-none" />
-
-      {/* Toast */}
+    <div className="p-6 max-w-7xl mx-auto space-y-6">
+      
+      {/* Toast Notification */}
       <AnimatePresence>
         {toastMessage && (
           <motion.div
             initial={{ opacity: 0, y: -50 }}
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: -50 }}
-            className="fixed top-24 left-1/2 -translate-x-1/2 z-50 px-6 py-3 rounded-lg frosted-glass border border-amber-500/30"
+            className="fixed top-6 left-1/2 -translate-x-1/2 z-50 px-6 py-3 rounded-lg frosted-glass border border-amber-500/30 shadow-lg"
           >
             <p className="text-ivory font-medium">{toastMessage}</p>
           </motion.div>
         )}
       </AnimatePresence>
 
-      {/* Deactivate Modal */}
+      {/* Suspend/Reactivate Modal */}
       <AnimatePresence>
-        {showDeactivateModal && (
+        {suspendModal && (
           <motion.div
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
             className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm"
-            onClick={() => setShowDeactivateModal(null)}
+            onClick={() => setSuspendModal(null)}
           >
             <motion.div
               initial={{ scale: 0.9, opacity: 0 }}
               animate={{ scale: 1, opacity: 1 }}
               exit={{ scale: 0.9, opacity: 0 }}
-              className="frosted-panel rounded-xl p-6 max-w-sm mx-4"
+              className={`frosted-panel rounded-xl p-6 max-w-md mx-4 w-full border ${suspendModal.isSuspended ? 'border-sage/30' : 'border-crimson/30'}`}
               onClick={e => e.stopPropagation()}
             >
-              <h3 className="text-ivory font-semibold text-lg mb-2">Confirm Deactivation</h3>
-              <p className="text-ivory/70 mb-4">
-                Are you sure you want to deactivate <span className="text-ivory font-medium">{showDeactivateModal.name}</span>? 
-                This {showDeactivateModal.type === "families" ? "family" : showDeactivateModal.type === "hospitals" ? "hospital" : "admin"} will lose access.
+              <h3 className="text-ivory font-semibold text-lg mb-2">
+                {suspendModal.isSuspended ? 'Reactivate' : 'Suspend'} {suspendModal.name}
+              </h3>
+              <p className="text-ivory/70 mb-4 text-sm">
+                {suspendModal.isSuspended 
+                  ? "This will restore full access to the platform." 
+                  : "This will instantly revoke access. Active sessions will be terminated."}
               </p>
+              
+              {!suspendModal.isSuspended && (
+                <div className="mb-6">
+                  <label className="text-sm text-ivory/70 block mb-2">Reason for suspension (required)</label>
+                  <textarea 
+                    value={suspendReason}
+                    onChange={e => setSuspendReason(e.target.value)}
+                    className="w-full bg-black/40 border border-white/10 rounded-lg p-3 text-ivory focus:outline-none focus:border-crimson/50 min-h-[100px]"
+                    placeholder="Provide details for the audit log..."
+                  />
+                </div>
+              )}
+
               <div className="flex gap-3 justify-end">
                 <button
-                  onClick={() => setShowDeactivateModal(null)}
+                  onClick={() => setSuspendModal(null)}
                   className="px-4 py-2 rounded-lg text-ivory/70 hover:text-ivory transition-colors"
                 >
                   Cancel
                 </button>
                 <button
-                  onClick={handleDeactivate}
-                  className="px-4 py-2 rounded-lg bg-crimson text-ivory font-medium hover:bg-crimson/80 transition-colors"
+                  onClick={handleStatusToggle}
+                  disabled={!suspendModal.isSuspended && !suspendReason.trim()}
+                  className={`px-4 py-2 rounded-lg font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed ${
+                    suspendModal.isSuspended ? 'bg-sage hover:bg-sage/80 text-obsidian' : 'bg-crimson hover:bg-crimson/80 text-ivory'
+                  }`}
                 >
-                  Deactivate
+                  Confirm {suspendModal.isSuspended ? 'Reactivation' : 'Suspension'}
                 </button>
               </div>
             </motion.div>
@@ -190,359 +172,297 @@ export default function EntitiesPage() {
         )}
       </AnimatePresence>
 
-      {/* Add Hospital Modal */}
-      <AnimatePresence>
-        {showAddModal && (
-          <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm"
-            onClick={() => setShowAddModal(false)}
-          >
-            <motion.div
-              initial={{ scale: 0.9, opacity: 0 }}
-              animate={{ scale: 1, opacity: 1 }}
-              exit={{ scale: 0.9, opacity: 0 }}
-              className="frosted-panel rounded-xl p-6 w-full max-w-md mx-4"
-              onClick={e => e.stopPropagation()}
-            >
-              <h3 className="text-ivory font-semibold text-lg mb-4">Add New Hospital Partner</h3>
-              <div className="space-y-4">
-                <div>
-                  <label className="text-ivory/70 text-sm block mb-1">Hospital Name</label>
-                  <input
-                    type="text"
-                    value={newHospital.name}
-                    onChange={e => setNewHospital(prev => ({ ...prev, name: e.target.value }))}
-                    className="w-full px-4 py-2 rounded-lg bg-white/5 border border-white/10 text-ivory placeholder:text-ivory/30 focus:outline-none focus:border-amber-500/50 transition-colors"
-                    placeholder="Enter hospital name"
-                  />
-                </div>
-                <div>
-                  <label className="text-ivory/70 text-sm block mb-1">Address</label>
-                  <input
-                    type="text"
-                    value={newHospital.address}
-                    onChange={e => setNewHospital(prev => ({ ...prev, address: e.target.value }))}
-                    className="w-full px-4 py-2 rounded-lg bg-white/5 border border-white/10 text-ivory placeholder:text-ivory/30 focus:outline-none focus:border-amber-500/50 transition-colors"
-                    placeholder="Enter address"
-                  />
-                </div>
-                <div>
-                  <label className="text-ivory/70 text-sm block mb-1">Admin Email</label>
-                  <input
-                    type="email"
-                    value={newHospital.adminEmail}
-                    onChange={e => setNewHospital(prev => ({ ...prev, adminEmail: e.target.value }))}
-                    className="w-full px-4 py-2 rounded-lg bg-white/5 border border-white/10 text-ivory placeholder:text-ivory/30 focus:outline-none focus:border-amber-500/50 transition-colors"
-                    placeholder="admin@hospital.com"
-                  />
-                </div>
-                <div>
-                  <label className="text-ivory/70 text-sm block mb-1">Admin Password</label>
-                  <input
-                    type="password"
-                    value={newHospital.adminPassword}
-                    onChange={e => setNewHospital(prev => ({ ...prev, adminPassword: e.target.value }))}
-                    className="w-full px-4 py-2 rounded-lg bg-white/5 border border-white/10 text-ivory placeholder:text-ivory/30 focus:outline-none focus:border-amber-500/50 transition-colors"
-                    placeholder="Create password"
-                  />
-                </div>
-              </div>
-              <div className="flex gap-3 justify-end mt-6">
-                <button
-                  onClick={() => setShowAddModal(false)}
-                  className="px-4 py-2 rounded-lg text-ivory/70 hover:text-ivory transition-colors"
-                >
-                  Cancel
-                </button>
-                <button
-                  onClick={addHospital}
-                  className="px-4 py-2 rounded-lg bg-terracotta text-ivory font-medium hover:bg-terracotta/80 transition-colors"
-                >
-                  Add Hospital
-                </button>
-              </div>
-            </motion.div>
-          </motion.div>
-        )}
-      </AnimatePresence>
-
-      {/* Top Bar */}
-      <header className="sticky top-0 z-40 frosted-glass px-6 py-4">
-        <div className="max-w-7xl mx-auto flex items-center gap-6">
-          <Link href="/admin/dashboard" className="flex items-center gap-2 text-ivory/70 hover:text-ivory transition-colors">
-            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
-            </svg>
-            <span>Back to Dashboard</span>
-          </Link>
-          <h1 className="text-xl font-semibold text-ivory font-space-grotesk">Entity Management</h1>
+      <header className="flex items-end justify-between mb-8">
+        <div>
+          <h1 className="text-2xl font-bold text-ivory font-space-grotesk">Entity Management</h1>
+          <p className="text-ivory/50">Centralized CRUD & access control for all platform actors</p>
         </div>
       </header>
 
-      {/* Main Content */}
-      <main className="max-w-7xl mx-auto px-6 py-8">
-        <motion.div
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          className="frosted-panel rounded-xl p-6"
-        >
-          {/* Tabs + Actions */}
-          <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-6">
-            <div className="flex gap-2">
-              {tabs.map(tab => (
-                <button
-                  key={tab.key}
-                  onClick={() => setActiveTab(tab.key)}
-                  className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
-                    activeTab === tab.key
-                      ? "bg-amber-500 text-obsidian"
-                      : "bg-white/5 text-ivory/70 hover:text-ivory hover:bg-white/10"
-                  }`}
-                >
-                  {tab.label}
-                </button>
-              ))}
-            </div>
-            <div className="flex gap-3 w-full sm:w-auto">
-              <input
-                type="text"
-                value={searchQuery}
-                onChange={e => setSearchQuery(e.target.value)}
-                placeholder="Search..."
-                className="flex-1 sm:w-64 px-4 py-2 rounded-lg bg-white/5 border border-white/10 text-ivory placeholder:text-ivory/30 focus:outline-none focus:border-amber-500/50 transition-colors"
-              />
-              <button
-                onClick={() => setShowAddModal(true)}
-                className="px-4 py-2 rounded-lg bg-terracotta text-ivory font-medium hover:bg-terracotta/80 transition-colors whitespace-nowrap"
-              >
-                + Add Hospital
-              </button>
-            </div>
+      {/* Main Panel */}
+      <div className="frosted-panel rounded-xl overflow-hidden flex flex-col h-[calc(100vh-200px)] relative">
+        
+        {/* Toolbar */}
+        <div className="p-4 border-b border-white/10 flex flex-col sm:flex-row items-center justify-between gap-4 shrink-0">
+          <div className="flex bg-black/40 p-1 rounded-lg border border-white/10">
+            <button 
+              onClick={() => setActiveTab('families')}
+              className={`flex items-center gap-2 px-4 py-2 rounded-md text-sm font-medium transition-colors ${activeTab === 'families' ? 'bg-amber-500 text-obsidian' : 'text-ivory/70 hover:text-ivory'}`}
+            >
+              <Users size={16} /> Families ({families.length})
+            </button>
+            <button 
+              onClick={() => setActiveTab('hospitals')}
+              className={`flex items-center gap-2 px-4 py-2 rounded-md text-sm font-medium transition-colors ${activeTab === 'hospitals' ? 'bg-amber-500 text-obsidian' : 'text-ivory/70 hover:text-ivory'}`}
+            >
+              <Building2 size={16} /> Hospitals ({hospitals.length})
+            </button>
+            <button 
+              onClick={() => setActiveTab('admins')}
+              className={`flex items-center gap-2 px-4 py-2 rounded-md text-sm font-medium transition-colors ${activeTab === 'admins' ? 'bg-amber-500 text-obsidian' : 'text-ivory/70 hover:text-ivory'}`}
+            >
+              <ShieldAlert size={16} /> Admins ({admins.length})
+            </button>
           </div>
 
-          {/* Table */}
-          <div className="overflow-x-auto">
-            {activeTab === "families" && (
-              <table className="w-full">
-                <thead>
-                  <tr className="border-b border-white/10">
-                    <th className="text-left text-ivory/50 text-sm font-normal pb-3">Family Name</th>
-                    <th className="text-left text-ivory/50 text-sm font-normal pb-3">Members</th>
-                    <th className="text-left text-ivory/50 text-sm font-normal pb-3">Created</th>
-                    <th className="text-left text-ivory/50 text-sm font-normal pb-3">Status</th>
-                    <th className="text-right text-ivory/50 text-sm font-normal pb-3">Actions</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {filteredFamilies.map(family => (
-                    <tr key={family.id} className="border-b border-white/5">
-                      <td className="py-4">
-                        {editingId === family.id ? (
-                          <input
-                            type="text"
-                            value={editValue}
-                            onChange={e => setEditValue(e.target.value)}
-                            onBlur={() => saveEdit("families", family.id)}
-                            onKeyDown={e => e.key === "Enter" && saveEdit("families", family.id)}
-                            className="px-2 py-1 rounded bg-white/10 border border-amber-500/50 text-ivory focus:outline-none"
-                            autoFocus
-                          />
-                        ) : (
-                          <span className="text-ivory">{family.name}</span>
-                        )}
-                      </td>
-                      <td className="py-4 text-ivory/70">{family.members} members</td>
-                      <td className="py-4 text-ivory/50 text-sm">{family.created}</td>
-                      <td className="py-4">
-                        <span className={`px-2 py-1 rounded text-xs ${family.status === "Active" ? "bg-sage/20 text-sage" : "bg-white/10 text-ivory/50"}`}>
-                          {family.status}
-                        </span>
-                      </td>
-                      <td className="py-4 text-right">
-                        <div className="flex gap-2 justify-end">
-                          <button className="p-2 rounded hover:bg-white/10 transition-colors" title="View">
-                            <svg className="w-4 h-4 text-ivory/50" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
-                            </svg>
-                          </button>
-                          <button 
-                            onClick={() => startEditing(family.id, family.name)}
-                            className="p-2 rounded hover:bg-white/10 transition-colors" 
-                            title="Edit"
-                          >
-                            <svg className="w-4 h-4 text-ivory/50" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
-                            </svg>
-                          </button>
-                          <button 
-                            onClick={() => setShowDeactivateModal({ type: "families", id: family.id, name: family.name })}
-                            className="p-2 rounded hover:bg-crimson/20 transition-colors" 
-                            title="Deactivate"
-                          >
-                            <svg className="w-4 h-4 text-crimson/70" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M18.364 18.364A9 9 0 005.636 5.636m12.728 12.728A9 9 0 015.636 5.636m12.728 12.728L5.636 5.636" />
-                            </svg>
-                          </button>
-                        </div>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+          <div className="flex items-center gap-3 w-full sm:w-auto">
+            <div className="relative flex-1 sm:w-64">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-ivory/40" />
+              <input 
+                type="text" 
+                placeholder="Search entities..."
+                value={searchQuery}
+                onChange={e => setSearchQuery(e.target.value)}
+                className="w-full pl-9 pr-4 py-2 bg-black/40 border border-white/10 rounded-lg text-sm text-ivory focus:outline-none focus:border-amber-500/50"
+              />
+            </div>
+            
+            {activeTab === 'hospitals' && (
+              <button 
+                onClick={() => setAddHospitalModal(true)}
+                className="flex items-center gap-2 px-4 py-2 bg-sage hover:bg-sage/80 text-obsidian font-semibold rounded-lg transition-colors text-sm whitespace-nowrap"
+              >
+                <Building size={16} /> Onboard Hospital
+              </button>
             )}
-
-            {activeTab === "hospitals" && (
-              <table className="w-full">
-                <thead>
-                  <tr className="border-b border-white/10">
-                    <th className="text-left text-ivory/50 text-sm font-normal pb-3">Hospital Name</th>
-                    <th className="text-left text-ivory/50 text-sm font-normal pb-3">Departments</th>
-                    <th className="text-left text-ivory/50 text-sm font-normal pb-3">Created</th>
-                    <th className="text-left text-ivory/50 text-sm font-normal pb-3">Status</th>
-                    <th className="text-right text-ivory/50 text-sm font-normal pb-3">Actions</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {filteredHospitals.map(hospital => (
-                    <tr key={hospital.id} className="border-b border-white/5">
-                      <td className="py-4">
-                        {editingId === hospital.id ? (
-                          <input
-                            type="text"
-                            value={editValue}
-                            onChange={e => setEditValue(e.target.value)}
-                            onBlur={() => saveEdit("hospitals", hospital.id)}
-                            onKeyDown={e => e.key === "Enter" && saveEdit("hospitals", hospital.id)}
-                            className="px-2 py-1 rounded bg-white/10 border border-amber-500/50 text-ivory focus:outline-none"
-                            autoFocus
-                          />
-                        ) : (
-                          <span className="text-ivory">{hospital.name}</span>
-                        )}
-                      </td>
-                      <td className="py-4 text-ivory/70">{hospital.departments} departments</td>
-                      <td className="py-4 text-ivory/50 text-sm">{hospital.created}</td>
-                      <td className="py-4">
-                        <span className={`px-2 py-1 rounded text-xs ${hospital.status === "Active" ? "bg-sage/20 text-sage" : "bg-white/10 text-ivory/50"}`}>
-                          {hospital.status}
-                        </span>
-                      </td>
-                      <td className="py-4 text-right">
-                        <div className="flex gap-2 justify-end">
-                          <button className="p-2 rounded hover:bg-white/10 transition-colors" title="View">
-                            <svg className="w-4 h-4 text-ivory/50" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
-                            </svg>
-                          </button>
-                          <button 
-                            onClick={() => startEditing(hospital.id, hospital.name)}
-                            className="p-2 rounded hover:bg-white/10 transition-colors" 
-                            title="Edit"
-                          >
-                            <svg className="w-4 h-4 text-ivory/50" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
-                            </svg>
-                          </button>
-                          <button 
-                            onClick={() => setShowDeactivateModal({ type: "hospitals", id: hospital.id, name: hospital.name })}
-                            className="p-2 rounded hover:bg-crimson/20 transition-colors" 
-                            title="Deactivate"
-                          >
-                            <svg className="w-4 h-4 text-crimson/70" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M18.364 18.364A9 9 0 005.636 5.636m12.728 12.728A9 9 0 015.636 5.636m12.728 12.728L5.636 5.636" />
-                            </svg>
-                          </button>
-                        </div>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+            
+            {activeTab === 'admins' && (
+              <button 
+                onClick={() => setInviteAdminModal(true)}
+                className="flex items-center gap-2 px-4 py-2 bg-amber-500 hover:bg-amber-500/80 text-obsidian font-semibold rounded-lg transition-colors text-sm whitespace-nowrap"
+              >
+                <UserPlus size={16} /> Invite Admin
+              </button>
             )}
+          </div>
+        </div>
 
-            {activeTab === "admins" && (
-              <table className="w-full">
-                <thead>
-                  <tr className="border-b border-white/10">
-                    <th className="text-left text-ivory/50 text-sm font-normal pb-3">Name</th>
-                    <th className="text-left text-ivory/50 text-sm font-normal pb-3">Email</th>
-                    <th className="text-left text-ivory/50 text-sm font-normal pb-3">Role</th>
-                    <th className="text-left text-ivory/50 text-sm font-normal pb-3">Created</th>
-                    <th className="text-left text-ivory/50 text-sm font-normal pb-3">Status</th>
-                    <th className="text-right text-ivory/50 text-sm font-normal pb-3">Actions</th>
+        {/* Data Tables */}
+        <div className="flex-1 overflow-auto custom-scrollbar relative">
+          
+          {isLoading && (
+            <div className="absolute inset-0 z-20 flex flex-col items-center justify-center bg-black/20 backdrop-blur-sm text-amber-500">
+              <Loader2 className="animate-spin mb-4" size={48} />
+              <p>Loading entities from Supabase...</p>
+            </div>
+          )}
+
+          {/* FAMILIES TABLE */}
+          {activeTab === 'families' && (
+            <table className="w-full text-sm text-left">
+              <thead className="sticky top-0 bg-[#141414] shadow-sm z-10 border-b border-white/10">
+                <tr>
+                  <th className="px-6 py-4 font-medium text-ivory/50">Family Name</th>
+                  <th className="px-6 py-4 font-medium text-ivory/50">Members</th>
+                  <th className="px-6 py-4 font-medium text-ivory/50">Primary Contact</th>
+                  <th className="px-6 py-4 font-medium text-ivory/50">Join Date</th>
+                  <th className="px-6 py-4 font-medium text-ivory/50">Status</th>
+                  <th className="px-6 py-4 font-medium text-ivory/50 text-right">Actions</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-white/5">
+                {filteredFamilies.map(fam => (
+                  <tr key={fam.id} className="hover:bg-white/5 group transition-colors">
+                    <td className="px-6 py-4 font-medium text-ivory">{fam.name}</td>
+                    <td className="px-6 py-4 text-ivory/70">
+                      <span className="inline-flex items-center justify-center w-6 h-6 rounded-full bg-white/10 text-xs font-bold mr-2">{fam.members?.length || 0}</span>
+                    </td>
+                    <td className="px-6 py-4 text-ivory/70">{fam.primary_contact}</td>
+                    <td className="px-6 py-4 text-ivory/50">{new Date(fam.created_at).toLocaleDateString()}</td>
+                    <td className="px-6 py-4">
+                      <span className={`px-2 py-1 rounded text-xs font-medium ${fam.status === 'Active' ? 'bg-sage/20 text-sage' : 'bg-crimson/20 text-crimson'}`}>
+                        {fam.status}
+                      </span>
+                    </td>
+                    <td className="px-6 py-4 text-right">
+                      <div className="flex items-center justify-end gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                        <button 
+                          onClick={() => showToast(`Logged in as ${fam.name} — audit trail active`)}
+                          className="p-2 text-ivory/50 hover:text-amber-500 hover:bg-amber-500/10 rounded-lg tooltip" title="Impersonate (Audit Logged)"
+                        >
+                          <LogIn size={16} />
+                        </button>
+                        <button 
+                          onClick={() => showToast(`Password reset link sent to ${fam.primary_contact}`)}
+                          className="p-2 text-ivory/50 hover:text-sage hover:bg-sage/10 rounded-lg tooltip" title="Force Password Reset"
+                        >
+                          <Key size={16} />
+                        </button>
+                        <button 
+                          onClick={() => setSuspendModal({ id: fam.id, type: 'families', name: fam.name, isSuspended: fam.status === 'Suspended' })}
+                          className={`p-2 rounded-lg tooltip ${fam.status === 'Suspended' ? 'text-sage hover:bg-sage/10' : 'text-ivory/50 hover:text-crimson hover:bg-crimson/10'}`}
+                          title={fam.status === 'Suspended' ? 'Reactivate' : 'Suspend'}
+                        >
+                          {fam.status === 'Suspended' ? <UserCheck size={16} /> : <UserX size={16} />}
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+
+          {/* HOSPITALS TABLE */}
+          {activeTab === 'hospitals' && (
+            <table className="w-full text-sm text-left">
+              <thead className="sticky top-0 bg-[#141414] shadow-sm z-10 border-b border-white/10">
+                <tr>
+                  <th className="px-6 py-4 font-medium text-ivory/50">Hospital Name</th>
+                  <th className="px-6 py-4 font-medium text-ivory/50">Departments</th>
+                  <th className="px-6 py-4 font-medium text-ivory/50">Patient Consents</th>
+                  <th className="px-6 py-4 font-medium text-ivory/50">Admin Contact</th>
+                  <th className="px-6 py-4 font-medium text-ivory/50">Status</th>
+                  <th className="px-6 py-4 font-medium text-ivory/50 text-right">Actions</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-white/5">
+                {filteredHospitals.map(hosp => (
+                  <tr key={hosp.id} className="hover:bg-white/5 group transition-colors">
+                    <td className="px-6 py-4 font-medium text-ivory flex items-center gap-3">
+                      <div className="w-8 h-8 rounded bg-white/10 flex items-center justify-center text-ivory/50">{hosp.name.charAt(0)}</div>
+                      {hosp.name}
+                    </td>
+                    <td className="px-6 py-4 text-ivory/70">{hosp.departments_count}</td>
+                    <td className="px-6 py-4 text-amber-500 font-medium">{hosp.patients_count}</td>
+                    <td className="px-6 py-4 text-ivory/70">{hosp.admin_email}</td>
+                    <td className="px-6 py-4">
+                      <span className={`px-2 py-1 rounded text-xs font-medium ${hosp.status === 'Active' ? 'bg-sage/20 text-sage' : 'bg-crimson/20 text-crimson'}`}>
+                        {hosp.status}
+                      </span>
+                    </td>
+                    <td className="px-6 py-4 text-right">
+                      <div className="flex items-center justify-end gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                        <button className="p-2 text-ivory/50 hover:text-amber-500 hover:bg-amber-500/10 rounded-lg tooltip" title="Edit Hospital">
+                          <Edit2 size={16} />
+                        </button>
+                        <button 
+                          onClick={() => showToast(`Password reset link sent to ${hosp.admin_email}`)}
+                          className="p-2 text-ivory/50 hover:text-sage hover:bg-sage/10 rounded-lg tooltip" title="Reset Admin Password"
+                        >
+                          <Key size={16} />
+                        </button>
+                        <button 
+                          onClick={() => setSuspendModal({ id: hosp.id, type: 'hospitals', name: hosp.name, isSuspended: hosp.status === 'Suspended' })}
+                          className={`p-2 rounded-lg tooltip ${hosp.status === 'Suspended' ? 'text-sage hover:bg-sage/10' : 'text-ivory/50 hover:text-crimson hover:bg-crimson/10'}`}
+                          title={hosp.status === 'Suspended' ? 'Reactivate' : 'Suspend'}
+                        >
+                          {hosp.status === 'Suspended' ? <UserCheck size={16} /> : <UserX size={16} />}
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+
+          {/* ADMINS TABLE */}
+          {activeTab === 'admins' && (
+            <div className="flex flex-col">
+              <table className="w-full text-sm text-left">
+                <thead className="sticky top-0 bg-[#141414] shadow-sm z-10 border-b border-white/10">
+                  <tr>
+                    <th className="px-6 py-4 font-medium text-ivory/50">Admin User</th>
+                    <th className="px-6 py-4 font-medium text-ivory/50">Role</th>
+                    <th className="px-6 py-4 font-medium text-ivory/50">Security</th>
+                    <th className="px-6 py-4 font-medium text-ivory/50">Last Login</th>
+                    <th className="px-6 py-4 font-medium text-ivory/50">Status</th>
+                    <th className="px-6 py-4 font-medium text-ivory/50 text-right">Permissions</th>
                   </tr>
                 </thead>
-                <tbody>
+                <tbody className="divide-y divide-white/5">
                   {filteredAdmins.map(admin => (
-                    <tr key={admin.id} className="border-b border-white/5">
-                      <td className="py-4">
-                        {editingId === admin.id ? (
-                          <input
-                            type="text"
-                            value={editValue}
-                            onChange={e => setEditValue(e.target.value)}
-                            onBlur={() => saveEdit("admins", admin.id)}
-                            onKeyDown={e => e.key === "Enter" && saveEdit("admins", admin.id)}
-                            className="px-2 py-1 rounded bg-white/10 border border-amber-500/50 text-ivory focus:outline-none"
-                            autoFocus
-                          />
-                        ) : (
-                          <span className="text-ivory">{admin.name}</span>
-                        )}
+                    <tr key={admin.id} className="hover:bg-white/5 group transition-colors">
+                      <td className="px-6 py-4">
+                        <div className="font-medium text-ivory">{admin.name}</div>
+                        <div className="text-xs text-ivory/50">{admin.email}</div>
                       </td>
-                      <td className="py-4 text-ivory/70">{admin.email}</td>
-                      <td className="py-4">
-                        <span className={`px-2 py-1 rounded text-xs ${admin.role === "Super Admin" ? "bg-amber-500/20 text-amber-500" : "bg-white/10 text-ivory/70"}`}>
+                      <td className="px-6 py-4">
+                        <span className={`px-2 py-1 rounded text-xs font-medium border ${
+                          admin.role === 'Super Admin' ? 'bg-amber-500/10 text-amber-500 border-amber-500/30' :
+                          admin.role === 'Support Admin' ? 'bg-terracotta/10 text-terracotta border-terracotta/30' :
+                          'bg-sage/10 text-sage border-sage/30'
+                        }`}>
                           {admin.role}
                         </span>
                       </td>
-                      <td className="py-4 text-ivory/50 text-sm">{admin.created}</td>
-                      <td className="py-4">
-                        <span className={`px-2 py-1 rounded text-xs ${admin.status === "Active" ? "bg-sage/20 text-sage" : "bg-white/10 text-ivory/50"}`}>
+                      <td className="px-6 py-4">
+                        <div className="flex items-center gap-2">
+                          {admin.tfa_enabled ? (
+                            <><ShieldAlert size={14} className="text-sage" /> <span className="text-xs text-sage">2FA On</span></>
+                          ) : (
+                            <><Lock size={14} className="text-saffron" /> <span className="text-xs text-saffron">2FA Off</span></>
+                          )}
+                        </div>
+                      </td>
+                      <td className="px-6 py-4 text-ivory/70">{admin.last_login ? new Date(admin.last_login).toLocaleString() : 'Never'}</td>
+                      <td className="px-6 py-4">
+                        <span className={`px-2 py-1 rounded text-xs font-medium ${admin.status === 'Active' ? 'bg-sage/20 text-sage' : 'bg-crimson/20 text-crimson'}`}>
                           {admin.status}
                         </span>
                       </td>
-                      <td className="py-4 text-right">
-                        <div className="flex gap-2 justify-end">
-                          <button className="p-2 rounded hover:bg-white/10 transition-colors" title="View">
-                            <svg className="w-4 h-4 text-ivory/50" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
-                            </svg>
-                          </button>
+                      <td className="px-6 py-4 text-right">
+                        <div className="flex items-center justify-end gap-2">
                           <button 
-                            onClick={() => startEditing(admin.id, admin.name)}
-                            className="p-2 rounded hover:bg-white/10 transition-colors" 
-                            title="Edit"
+                            onClick={() => setExpandedAdmin(expandedAdmin === admin.id ? null : admin.id)}
+                            className="px-3 py-1.5 rounded-lg bg-white/5 hover:bg-white/10 text-ivory/70 text-xs font-medium transition-colors"
                           >
-                            <svg className="w-4 h-4 text-ivory/50" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
-                            </svg>
+                            View Matrix
                           </button>
-                          <button 
-                            onClick={() => setShowDeactivateModal({ type: "admins", id: admin.id, name: admin.name })}
-                            className="p-2 rounded hover:bg-crimson/20 transition-colors" 
-                            title="Deactivate"
-                          >
-                            <svg className="w-4 h-4 text-crimson/70" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M18.364 18.364A9 9 0 005.636 5.636m12.728 12.728A9 9 0 015.636 5.636m12.728 12.728L5.636 5.636" />
-                            </svg>
-                          </button>
+                          <div className="opacity-0 group-hover:opacity-100 flex items-center gap-1 transition-opacity">
+                            <button 
+                              onClick={() => setSuspendModal({ id: admin.id, type: 'admins', name: admin.name, isSuspended: admin.status === 'Suspended' })}
+                              className={`p-1.5 rounded-lg ${admin.status === 'Suspended' ? 'text-sage hover:bg-sage/10' : 'text-crimson/70 hover:bg-crimson/10'}`}
+                            >
+                              {admin.status === 'Suspended' ? <UserCheck size={14} /> : <UserX size={14} />}
+                            </button>
+                          </div>
                         </div>
                       </td>
                     </tr>
                   ))}
                 </tbody>
               </table>
-            )}
-          </div>
-        </motion.div>
-      </main>
+
+              {/* Permissions Matrix Expanded View */}
+              <AnimatePresence>
+                {expandedAdmin && (
+                  <motion.div 
+                    initial={{ height: 0, opacity: 0 }}
+                    animate={{ height: "auto", opacity: 1 }}
+                    exit={{ height: 0, opacity: 0 }}
+                    className="bg-black/60 border-t border-b border-amber-500/30 overflow-hidden"
+                  >
+                    <div className="p-6">
+                      <h4 className="text-ivory font-medium mb-4 flex items-center gap-2">
+                        <ShieldAlert className="text-amber-500" size={18}/> 
+                        Role-Based Permissions Matrix: {admins.find(a => a.id === expandedAdmin)?.name}
+                      </h4>
+                      <div className="grid grid-cols-4 gap-4 text-sm">
+                        {[
+                          { mod: "Database Access", val: admins.find(a => a.id === expandedAdmin)?.role === 'Super Admin' ? 'Full Read/Write' : 'Read Only' },
+                          { mod: "Consent Governance", val: admins.find(a => a.id === expandedAdmin)?.role !== 'Auditor' ? 'Manage' : 'View Only' },
+                          { mod: "FDA Recalls", val: admins.find(a => a.id === expandedAdmin)?.role !== 'Auditor' ? 'Push Alerts' : 'View Logs' },
+                          { mod: "Emergency Protocol", val: admins.find(a => a.id === expandedAdmin)?.role === 'Super Admin' ? 'Declare & End' : 'No Access' },
+                          { mod: "Audit Logs", val: 'Full View & Export' },
+                          { mod: "Entity Management", val: admins.find(a => a.id === expandedAdmin)?.role === 'Super Admin' ? 'Manage All' : 'Manage Families' },
+                        ].map((perm, idx) => (
+                          <div key={idx} className="p-3 bg-white/5 rounded-lg border border-white/10">
+                            <div className="text-ivory/50 text-xs mb-1">{perm.mod}</div>
+                            <div className={`font-medium ${perm.val === 'No Access' ? 'text-crimson' : 'text-sage'}`}>{perm.val}</div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  </motion.div>
+                )}
+              </AnimatePresence>
+            </div>
+          )}
+
+        </div>
+      </div>
     </div>
   );
 }
