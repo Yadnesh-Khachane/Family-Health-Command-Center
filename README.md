@@ -83,6 +83,31 @@ pnpm dev
 
 Open [http://localhost:3000](http://localhost:3000) in your browser.
 
+### Supabase setup
+
+1. Create a Supabase project at https://app.supabase.com and note the project ref (the subdomain such as `your-project-ref`).
+2. Copy `.env.example` to `.env.local` and set the values:
+
+```bash
+cp .env.example .env.local
+# edit .env.local and set NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY
+```
+
+3. Open the Supabase SQL editor and run the contents of `supabase_schema.sql` to create the schema and triggers.
+
+4. Run `supabase_seed.sql` in the SQL editor to populate demo families, hospitals, members, consent links, recalls, medical records, tasks, expenses, emergency contacts, and audit logs.
+
+5. Start the dev server:
+
+```bash
+pnpm dev
+```
+
+Notes:
+- Do NOT commit `.env.local` or any service role key to source control.
+- The browser client uses `NEXT_PUBLIC_SUPABASE_URL` and `NEXT_PUBLIC_SUPABASE_ANON_KEY`.
+- For server-side admin operations you can set `SUPABASE_SERVICE_ROLE_KEY` and use it only in server-safe code.
+
 ---
 
 ## Available Scripts

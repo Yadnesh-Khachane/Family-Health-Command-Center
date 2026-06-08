@@ -9,7 +9,7 @@ import {
 } from "lucide-react";
 import { createClient } from "@/utils/supabase/client";
 
-type AccessLevel = "none" | "readonly" | "full";
+type AccessLevel = "none" | "readonly" | "full" | "emergency";
 
 export default function ConsentPage() {
   const supabase = createClient();
@@ -83,6 +83,8 @@ export default function ConsentPage() {
     let next: AccessLevel = "none";
     if (current === "none") next = "readonly";
     else if (current === "readonly") next = "full";
+    else if (current === "full") next = "none";
+    else if (current === "emergency") next = "none";
     
     // Optimistic UI Update
     setConsentLinks(prev => {
@@ -134,6 +136,7 @@ export default function ConsentPage() {
     switch (level) {
       case "full": return "bg-amber-500 shadow-[0_0_15px_rgba(245,166,35,0.3)] border border-amber-400";
       case "readonly": return "bg-amber-500/10 border-2 border-amber-500 text-amber-500";
+      case "emergency": return "bg-crimson/20 shadow-[0_0_15px_rgba(220,38,38,0.25)] border border-crimson text-crimson";
       case "none": return "bg-white/5 border border-white/10 hover:bg-white/10";
     }
   };

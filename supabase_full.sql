@@ -1,15 +1,32 @@
+-- Full Supabase schema and seed script for Family Health Command Center
+-- Drops everything and inserts demo data with valid PostgreSQL UUIDs.
+
+CREATE EXTENSION IF NOT EXISTS "pgcrypto";
+
+DROP TABLE IF EXISTS emergency_contacts CASCADE;
+DROP TABLE IF EXISTS expense_records CASCADE;
+DROP TABLE IF EXISTS medical_tasks CASCADE;
+DROP TABLE IF EXISTS timeline_events CASCADE;
+DROP TABLE IF EXISTS medical_records CASCADE;
+DROP TABLE IF EXISTS anomalies CASCADE;
+DROP TABLE IF EXISTS fda_recalls CASCADE;
+DROP TABLE IF EXISTS audit_logs CASCADE;
+DROP TABLE IF EXISTS consent_links CASCADE;
+DROP TABLE IF EXISTS admins CASCADE;
+DROP TABLE IF EXISTS members CASCADE;
+DROP TABLE IF EXISTS hospitals CASCADE;
+DROP TABLE IF EXISTS families CASCADE;
+DROP TYPE IF EXISTS access_level;
+
 -- Supabase Schema for Family Health Command Center
 -- Supabase Schema for Family Health Command Center (detailed, relational)
 
 /*
   Notes:
-  - This schema is intended to be run in the Supabase SQL editor.
-  - No application mock/static data is inserted here; create test data separately.
+  - This full script is intended to be run in the Supabase SQL editor.
+  - It includes both schema creation and demo seed data.
   - Requires pgcrypto for gen_random_uuid().
 */
-
--- Ensure uuid generator is available
-CREATE EXTENSION IF NOT EXISTS "pgcrypto";
 
 -- Families table with counts and metadata
 CREATE TABLE IF NOT EXISTS families (
@@ -285,3 +302,58 @@ CREATE INDEX IF NOT EXISTS idx_medical_records_member_id ON medical_records(memb
 CREATE INDEX IF NOT EXISTS idx_consent_member_hospital ON consent_links(member_id, hospital_id);
 
 -- End of schema
+
+-- Seed data for Family Health Command Center
+
+-- Families
+INSERT INTO families (id, name, primary_contact, status, created_at, updated_at) VALUES ('52f2eaff-aad3-4455-8381-e8c8dce4992d', 'Sharma Family', 'contact@sharma.family', 'active', NOW(), NOW());
+INSERT INTO families (id, name, primary_contact, status, created_at, updated_at) VALUES ('f2010ffd-d2c1-4bc7-a9ba-56bf6d004f7b', 'Gupta Family', 'contact@gupta.family', 'active', NOW(), NOW());
+INSERT INTO families (id, name, primary_contact, status, created_at, updated_at) VALUES ('d7b9d637-0d03-4619-b462-fd570467467b', 'Patel Family', 'contact@patel.family', 'active', NOW(), NOW());
+
+-- Hospitals
+INSERT INTO hospitals (id, name, address, admin_email, status, departments_count, patients_count, created_at, updated_at) VALUES ('7233f125-0f5e-46bd-b261-baf0f9afe455', 'Apollo Medical Center', '123 Main St, Mumbai', 'admin@apollo.in', 'active', 12, 0, NOW(), NOW());
+INSERT INTO hospitals (id, name, address, admin_email, status, departments_count, patients_count, created_at, updated_at) VALUES ('5335d6f2-573e-455f-86bf-f02c83850265', 'City General Hospital', '45 Park Ave, Delhi', 'admin@citygeneral.in', 'active', 10, 0, NOW(), NOW());
+INSERT INTO hospitals (id, name, address, admin_email, status, departments_count, patients_count, created_at, updated_at) VALUES ('26d10ea1-b042-42f4-97fa-c2c2a3e7c86d', 'Metro Health Institute', '88 Oak Street, Bangalore', 'contact@metrohealth.in', 'active', 9, 0, NOW(), NOW());
+
+-- Admins
+INSERT INTO admins (id, name, email, role, tfa_enabled, status, last_login, created_at) VALUES ('4350278d-6bcb-4a21-ae69-16804e64da30', 'Administrator', 'admin@fhcc.com', 'super_admin', true, 'active', NOW(), NOW());
+
+-- Members
+INSERT INTO members (id, family_id, first_name, last_name, dob, blood_type, relation, status, primary_hospital_id, created_at, updated_at) VALUES ('a62725f3-b584-4031-892c-409cad222894', '52f2eaff-aad3-4455-8381-e8c8dce4992d', 'Aanya', 'Sharma', '1960-03-11', 'B+', 'Grandparent', 'warning', '5335d6f2-573e-455f-86bf-f02c83850265', NOW(), NOW());
+INSERT INTO members (id, family_id, first_name, last_name, dob, blood_type, relation, status, primary_hospital_id, created_at, updated_at) VALUES ('af6ac7b0-7f2b-43bb-a647-e9c15d789cb2', '52f2eaff-aad3-4455-8381-e8c8dce4992d', 'Dev', 'Sharma', '1961-04-15', 'O+', 'Parent', 'critical', '26d10ea1-b042-42f4-97fa-c2c2a3e7c86d', NOW(), NOW());
+INSERT INTO members (id, family_id, first_name, last_name, dob, blood_type, relation, status, primary_hospital_id, created_at, updated_at) VALUES ('14004fd8-3d7c-4887-b20a-fb5a201eae42', 'f2010ffd-d2c1-4bc7-a9ba-56bf6d004f7b', 'Aanya', 'Gupta', '1960-05-20', 'O+', 'Grandparent', 'critical', '26d10ea1-b042-42f4-97fa-c2c2a3e7c86d', NOW(), NOW());
+INSERT INTO members (id, family_id, first_name, last_name, dob, blood_type, relation, status, primary_hospital_id, created_at, updated_at) VALUES ('a6d1564c-f68f-4aed-ab6a-5e5bc2a65c84', 'f2010ffd-d2c1-4bc7-a9ba-56bf6d004f7b', 'Dev', 'Gupta', '1961-06-24', 'AB+', 'Parent', 'healthy', '7233f125-0f5e-46bd-b261-baf0f9afe455', NOW(), NOW());
+INSERT INTO members (id, family_id, first_name, last_name, dob, blood_type, relation, status, primary_hospital_id, created_at, updated_at) VALUES ('d3a980b1-ceb6-46c2-9187-4c25952b8ff1', 'd7b9d637-0d03-4619-b462-fd570467467b', 'Kavya', 'Patel', '1962-10-07', 'B-', 'Child', 'critical', '26d10ea1-b042-42f4-97fa-c2c2a3e7c86d', NOW(), NOW());
+INSERT INTO members (id, family_id, first_name, last_name, dob, blood_type, relation, status, primary_hospital_id, created_at, updated_at) VALUES ('bb407030-2929-48bb-8bf2-c121ae076662', 'd7b9d637-0d03-4619-b462-fd570467467b', 'Rohan', 'Patel', '1963-11-11', 'O-', 'Sibling', 'healthy', '7233f125-0f5e-46bd-b261-baf0f9afe455', NOW(), NOW());
+
+-- Consent links
+INSERT INTO consent_links (member_id, hospital_id, access_level, granted_by, granted_at, updated_at) VALUES ('a62725f3-b584-4031-892c-409cad222894', '5335d6f2-573e-455f-86bf-f02c83850265', 'full', '4350278d-6bcb-4a21-ae69-16804e64da30', NOW(), NOW());
+INSERT INTO consent_links (member_id, hospital_id, access_level, granted_by, granted_at, updated_at) VALUES ('af6ac7b0-7f2b-43bb-a647-e9c15d789cb2', '26d10ea1-b042-42f4-97fa-c2c2a3e7c86d', 'readonly', '4350278d-6bcb-4a21-ae69-16804e64da30', NOW(), NOW());
+INSERT INTO consent_links (member_id, hospital_id, access_level, granted_by, granted_at, updated_at) VALUES ('14004fd8-3d7c-4887-b20a-fb5a201eae42', '7233f125-0f5e-46bd-b261-baf0f9afe455', 'full', '4350278d-6bcb-4a21-ae69-16804e64da30', NOW(), NOW());
+INSERT INTO consent_links (member_id, hospital_id, access_level, granted_by, granted_at, updated_at) VALUES ('a6d1564c-f68f-4aed-ab6a-5e5bc2a65c84', '5335d6f2-573e-455f-86bf-f02c83850265', 'readonly', '4350278d-6bcb-4a21-ae69-16804e64da30', NOW(), NOW());
+INSERT INTO consent_links (member_id, hospital_id, access_level, granted_by, granted_at, updated_at) VALUES ('d3a980b1-ceb6-46c2-9187-4c25952b8ff1', '26d10ea1-b042-42f4-97fa-c2c2a3e7c86d', 'emergency', '4350278d-6bcb-4a21-ae69-16804e64da30', NOW(), NOW());
+
+-- Medical records
+INSERT INTO medical_records (id, member_id, hospital_id, title, category, doctor_name, notes, created_at) VALUES ('6c52e2d8-db0f-45fa-9fa0-41bfdcb59935', 'a62725f3-b584-4031-892c-409cad222894', '5335d6f2-573e-455f-86bf-f02c83850265', 'High blood pressure', 'Hypertension', 'Dr. Reddy', 'Medication and diet plan', NOW());
+INSERT INTO medical_records (id, member_id, hospital_id, title, category, doctor_name, notes, created_at) VALUES ('c4f0a9c0-4d96-4082-ad9e-dcdc3796f99a', '14004fd8-3d7c-4887-b20a-fb5a201eae42', '26d10ea1-b042-42f4-97fa-c2c2a3e7c86d', 'Allergic asthma', 'Asthma', 'Dr. Singh', 'Inhaler prescribed', NOW());
+INSERT INTO medical_records (id, member_id, hospital_id, title, category, doctor_name, notes, created_at) VALUES ('acac8ff9-3a3c-4f55-86cc-ba2e806f50db', 'd3a980b1-ceb6-46c2-9187-4c25952b8ff1', '26d10ea1-b042-42f4-97fa-c2c2a3e7c86d', 'Fractured wrist', 'Orthopedic follow-up', 'Dr. Kapoor', 'Cast applied', NOW());
+
+-- Timeline events
+INSERT INTO timeline_events (id, member_id, date, category, title, subtitle, doctor, hospital, notes, status, created_at) VALUES ('8cc2246f-c35c-4d38-892e-cfe5340476f4', 'a62725f3-b584-4031-892c-409cad222894', '2026-05-01', 'Appointment', 'Annual checkup', '', 'Dr. Reddy', 'Apollo Medical Center', 'Everything normal', 'completed', NOW());
+INSERT INTO timeline_events (id, member_id, date, category, title, subtitle, doctor, hospital, notes, status, created_at) VALUES ('a47996cc-f69e-4692-8b32-e34ac9410a60', '14004fd8-3d7c-4887-b20a-fb5a201eae42', '2026-04-15', 'Emergency', 'Asthma attack', '', 'Dr. Singh', 'City General Hospital', 'Administered nebulizer', 'completed', NOW());
+INSERT INTO timeline_events (id, member_id, date, category, title, subtitle, doctor, hospital, notes, status, created_at) VALUES ('8a4d87e0-5c40-42a1-8c46-6a8dc9fa2d9b', 'd3a980b1-ceb6-46c2-9187-4c25952b8ff1', '2026-03-20', 'Follow-up', 'Cast removal', '', 'Dr. Kapoor', 'Metro Health Institute', 'Healing well', 'completed', NOW());
+
+-- Medical tasks
+INSERT INTO medical_tasks (id, title, member_id, due_date, category, completed, created_at) VALUES ('0451198e-ef5f-485a-b32c-3fba176cf7fb', 'Blood pressure check', 'a62725f3-b584-4031-892c-409cad222894', '2026-06-01', 'followup', false, NOW());
+INSERT INTO medical_tasks (id, title, member_id, due_date, category, completed, created_at) VALUES ('2700313d-a48b-4149-a900-913e031e0055', 'Inhaler refill', '14004fd8-3d7c-4887-b20a-fb5a201eae42', '2026-05-10', 'followup', false, NOW());
+INSERT INTO medical_tasks (id, title, member_id, due_date, category, completed, created_at) VALUES ('89cbeeba-5fde-4b38-af88-2964f64d4ca0', 'Physical therapy session', 'd3a980b1-ceb6-46c2-9187-4c25952b8ff1', '2026-04-30', 'followup', false, NOW());
+
+-- Expense records
+INSERT INTO expense_records (id, title, member_id, amount, date, category, status, created_at) VALUES ('ce4faf6f-580c-44b5-b6ec-224b049951a1', 'Medication refill', 'a62725f3-b584-4031-892c-409cad222894', 4500.0, '2026-04-01', 'medical', 'completed', NOW());
+INSERT INTO expense_records (id, title, member_id, amount, date, category, status, created_at) VALUES ('acce8949-68c1-4b5e-9996-ae79f33a29b5', 'ER treatment', '14004fd8-3d7c-4887-b20a-fb5a201eae42', 12000.0, '2026-04-01', 'medical', 'pending', NOW());
+INSERT INTO expense_records (id, title, member_id, amount, date, category, status, created_at) VALUES ('45f67bdc-bc3a-4231-828c-b7c60abb24c4', 'Physiotherapy', 'd3a980b1-ceb6-46c2-9187-4c25952b8ff1', 3800.0, '2026-04-01', 'medical', 'completed', NOW());
+
+-- Emergency contacts
+INSERT INTO emergency_contacts (id, member_id, name, relation, phone, email, created_at) VALUES ('ecd38c85-4603-4e27-948b-2bb363143ee4', 'a62725f3-b584-4031-892c-409cad222894', 'Pooja Sharma', 'Daughter', '+911234567890', 'pooja@sharma.family', NOW());
+INSERT INTO emergency_contacts (id, member_id, name, relation, phone, email, created_at) VALUES ('784adef6-d297-4507-9544-69fa92b92050', '14004fd8-3d7c-4887-b20a-fb5a201eae42', 'Rakesh Gupta', 'Son', '+919876543210', 'rakesh@gupta.family', NOW());
+INSERT INTO emergency_contacts (id, member_id, name, relation, phone, email, created_at) VALUES ('169d44e9-37ba-4612-a4c7-5c3926ceb931', 'd3a980b1-ceb6-46c2-9187-4c25952b8ff1', 'Mira Patel', 'Sister', '+919112233445', 'mira@patel.family', NOW());
